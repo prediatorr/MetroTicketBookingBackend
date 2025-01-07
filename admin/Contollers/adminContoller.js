@@ -2,19 +2,67 @@ const Station = require("../../models/station");
 const Admin = require("../../models/Admin");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const FareConfig = require("../../models/FareConfig");
+const { generateOTP, sendOTP } = require("../../utils/otpUtils");
+
 
 // Admin Signup
 const adminSignup = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const existingAdmin = await Admin.findOne({ email });
-    if (existingAdmin)
-      return res.status(400).json({ message: "Admin already exists" });
 
-    const admin = await Admin.create({ email, password });
-    res
-      .status(201)
-      .json({ message: "Admin registered successfully", adminId: admin._id });
+    // Check if admin exists
+    const existingAdmin = await Admin.findOne({ email });
+    if (existingAdmin) {
+      return res.status(400).json({ message: "Admin already exists" });
+    }
+
+    // Generate OTP
+    const otp = generateOTP();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+
+    // Create admin with unverified status
+    const admin = await Admin.create({
+      email,
+      password,
+      otp,
+      otpExpiry,
+      isVerified: false,
+    });
+
+    // Send OTP
+    await sendOTP(email, otp);
+
+    res.status(201).json({
+      message: "Admin registered. Please verify your email with OTP",
+      adminId: admin._id,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Verify Signup OTP
+const verifySignupOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    const admin = await Admin.findOne({ email });
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    if (admin.otp !== otp || admin.otpExpiry < Date.now()) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
+    // Mark admin as verified
+    admin.isVerified = true;
+    admin.otp = undefined;
+    admin.otpExpiry = undefined;
+    await admin.save();
+
+    res.status(200).json({ message: "Email verified successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -24,27 +72,83 @@ const adminSignup = async (req, res) => {
 const adminLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
+
     const admin = await Admin.findOne({ email });
-    if (!admin) return res.status(404).json({ message: "Admin not found" });
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    if (!admin.isVerified) {
+      return res.status(401).json({ message: "Email not verified" });
+    }
 
     const isPasswordValid = await bcrypt.compare(password, admin.password);
-    if (!isPasswordValid)
+    if (!isPasswordValid) {
       return res.status(401).json({ message: "Invalid credentials" });
+    }
 
+    // Generate and send login OTP
+    const otp = generateOTP();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+    admin.otp = otp;
+    admin.otpExpiry = otpExpiry;
+    await admin.save();
+
+    await sendOTP(email, otp);
+
+    res.status(200).json({ message: "OTP sent for login verification" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Verify Login OTP
+const verifyLoginOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    const admin = await Admin.findOne({ email });
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    if (admin.otp !== otp || admin.otpExpiry < Date.now()) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
+    // Clear OTP
+    admin.otp = undefined;
+    admin.otpExpiry = undefined;
+    await admin.save();
+
+    // Generate JWT token
     const token = jwt.sign({ id: admin._id }, process.env.JWT_SECRET, {
       expiresIn: "1h",
     });
+
     res.status(200).json({ message: "Login successful", token });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// Add New Station
+
+
+// Add Station
 const addStation = async (req, res) => {
   try {
     const { from, to, distance } = req.body;
-    const fare = distance * 6; // Fare calculation logic
+
+    // Fetch the current fare price
+    const fareConfig = await FareConfig.findOne();
+    if (!fareConfig) {
+      return res
+        .status(404)
+        .json({ message: "Fare price configuration not found" });
+    }
+
+    const fare = distance * fareConfig.ratePerKm; // Dynamic fare calculation
     const station = await Station.create({ from, to, distance, fare });
     res.status(201).json(station);
   } catch (error) {
@@ -52,19 +156,39 @@ const addStation = async (req, res) => {
   }
 };
 
-// Universal Fare Update
+
+// Update the fare prices
 const updateFare = async (req, res) => {
   try {
     const { ratePerKm } = req.body;
+
+    // Update the fare price in the FareConfig collection
+    let fareConfig = await FareConfig.findOne();
+    if (!fareConfig) {
+      fareConfig = await FareConfig.create({ ratePerKm });
+    } else {
+      fareConfig.ratePerKm = ratePerKm;
+      await fareConfig.save();
+    }
+
+    // Recalculate fares for all stations
     const stations = await Station.find();
     for (const station of stations) {
       station.fare = station.distance * ratePerKm;
       await station.save();
     }
+
     res.status(200).json({ message: "Fares updated successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-module.exports = { adminSignup, adminLogin, addStation, updateFare };
+module.exports = {
+  adminSignup,
+  verifySignupOTP,
+  adminLogin,
+  verifyLoginOTP,
+  addStation,
+  updateFare,
+};
