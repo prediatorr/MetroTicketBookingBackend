@@ -7,16 +7,17 @@ const {
   addStation,
   updateFare,
 } = require("../Contollers/adminContoller");
+const { protect } = require("../middleware/authMiddleware");
 const router = express.Router();
 
-// Admin authentication routes
+// Public routes (no authentication required)
 router.post("/signup", adminSignup);
 router.post("/verify-signup", verifySignupOTP);
 router.post("/login", adminLogin);
 router.post("/verify-login", verifyLoginOTP);
 
-// Station management routes
-router.post("/add-station", addStation);
-router.put("/update-fare", updateFare);
+// Protected routes (authentication required)
+router.post("/add-station", protect, addStation);
+router.put("/update-fare", protect, updateFare);
 
 module.exports = router;
