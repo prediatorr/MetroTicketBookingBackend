@@ -8,7 +8,7 @@ const crypto = require("crypto");
 dotenv.config();
 
 // Get Stations
-const getStations = async (req, res) => {
+const   getStations = async (req, res) => {
   try {
     const stations = await Station.find();
     res.status(200).json(stations);

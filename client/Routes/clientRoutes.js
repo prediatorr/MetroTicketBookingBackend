@@ -6,6 +6,7 @@ const { getUniqueStations } = require('../Contollers/stationController');
 const router = express.Router();
 
 router.get("/stations", getStations);
+router.get("/uniqueStation",getUniqueStations)
 router.post("/book-ticket", bookTicket);
 router.post("/verify-payment", verifyPayment);
 router.post("/verify-ticket", verifyTicket);
