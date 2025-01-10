@@ -2,7 +2,7 @@ const express = require("express");
 const dotenv = require("dotenv");
 const connectDB = require("./config/db");
 const adminRoutes = require("./admin/Routes/adminRoutes");
-const clientRoutes = require("./client/Routes/clientRoutes"); 
+const clientRoutes = require("./client/Routes/clientRoutes");
 const cors = require("cors");
 
 dotenv.config();
@@ -13,8 +13,8 @@ app.use(express.json());
 app.use(cors());
 
 app.get("/", (req, res) => {
-    res.json({ message: "Hello World" });
-  });
+  res.status(200).json("welcome to home.");
+});
 
 app.use("/api/admin", adminRoutes);
 app.use("/api/client", clientRoutes);
